@@ -1,0 +1,358 @@
+# =============================================================================
+# Prometheus Alert Rules for Kraken Trading Bot
+# =============================================================================
+# Alert categories:
+# - Service Health: Bot availability and connectivity
+# - Trading Activity: Trade failures, unusual activity
+# - Performance: Drawdown, PnL thresholds
+# - Technical: WebSocket issues, API errors
+# =============================================================================
+
+groups:
+    # =========================================================================
+    # Service Health Alerts
+    # =========================================================================
+    - name: service_health
+      interval: 30s
+      rules:
+          # Bot service down
+          - alert: TradingBotDown
+            expr: up{job="kraken-bot"} == 0
+            for: 1m
+            labels:
+                severity: critical
+                service: trading-bot
+            annotations:
+                summary: "Trading bot is down"
+                description: "The Kraken trading bot ({{ $labels.instance }}) has been down for more than 1 minute."
+                runbook_url: "https://docs.kraken-bot.local/runbooks/bot-down"
+
+          # Bot unhealthy
+          - alert: TradingBotUnhealthy
+            expr: kraken_bot_up == 0
+            for: 2m
+            labels:
+                severity: critical
+                service: trading-bot
+            annotations:
+                summary: "Trading bot reports unhealthy status"
+                description: "The trading bot ({{ $labels.instance }}) is reporting an unhealthy status for more than 2 minutes."
+
+          # Optimizer service down
+          - alert: OptimizerServiceDown
+            expr: up{job="kraken-optimizer"} == 0
+            for: 5m
+            labels:
+                severity: warning
+                service: optimizer
+            annotations:
+                summary: "Optimizer service is down"
+                description: "The optimizer service has been down for more than 5 minutes."
+
+          # Optimizer unhealthy
+          - alert: OptimizerUnhealthy
+            expr: kraken_optimizer_up == 0
+            for: 5m
+            labels:
+                severity: warning
+                service: optimizer
+            annotations:
+                summary: "Optimizer service reports unhealthy status"
+                description: "The optimizer service is reporting an unhealthy status."
+
+          # Redis down
+          - alert: RedisDown
+            expr: up{job="redis"} == 0
+            for: 1m
+            labels:
+                severity: critical
+                service: redis
+            annotations:
+                summary: "Redis is down"
+                description: "Redis state persistence service has been down for more than 1 minute. Bot state may not be persisted."
+
+    # =========================================================================
+    # WebSocket Connection Alerts
+    # =========================================================================
+    - name: websocket_alerts
+      interval: 15s
+      rules:
+          # WebSocket disconnected
+          - alert: WebSocketDisconnected
+            expr: kraken_ws_connected == 0
+            for: 1m
+            labels:
+                severity: critical
+                service: trading-bot
+            annotations:
+                summary: "WebSocket disconnected from Kraken"
+                description: "The trading bot has lost WebSocket connection to Kraken for more than 1 minute. No market data is being received."
+
+          # High reconnection rate
+          - alert: HighWebSocketReconnections
+            expr: increase(kraken_ws_reconnections_total[15m]) > 5
+            for: 0m
+            labels:
+                severity: warning
+                service: trading-bot
+            annotations:
+                summary: "High WebSocket reconnection rate"
+                description: "The trading bot has reconnected {{ $value }} times in the last 15 minutes. Check network stability or Kraken API status."
+
+          # No messages received
+          - alert: NoWebSocketMessages
+            expr: increase(kraken_ws_messages_received_total[5m]) == 0 and kraken_ws_connected == 1
+            for: 5m
+            labels:
+                severity: warning
+                service: trading-bot
+            annotations:
+                summary: "No WebSocket messages received"
+                description: "The bot appears connected but hasn't received any WebSocket messages in 5 minutes."
+
+          # High message error rate
+          - alert: HighWebSocketErrorRate
+            expr: rate(kraken_ws_messages_errors_total[5m]) / rate(kraken_ws_messages_received_total[5m]) > 0.05
+            for: 5m
+            labels:
+                severity: warning
+                service: trading-bot
+            annotations:
+                summary: "High WebSocket error rate"
+                description: "More than 5% of WebSocket messages are resulting in errors."
+
+    # =========================================================================
+    # Trading Activity Alerts
+    # =========================================================================
+    - name: trading_alerts
+      interval: 30s
+      rules:
+          # Trade execution failure
+          - alert: TradeExecutionFailed
+            expr: increase(kraken_trades_failed_total[5m]) > 0
+            for: 0m
+            labels:
+                severity: warning
+                service: trading-bot
+            annotations:
+                summary: "Trade execution failed"
+                description: "{{ $value }} trade(s) failed to execute for {{ $labels.asset }} in the last 5 minutes."
+
+          # High trade failure rate
+          - alert: HighTradeFailureRate
+            expr: |
+                sum by (asset) (increase(kraken_trades_failed_total[1h]))
+                /
+                (sum by (asset) (increase(kraken_trades_successful_total[1h])) + sum by (asset) (increase(kraken_trades_failed_total[1h])))
+                > 0.2
+            for: 0m
+            labels:
+                severity: critical
+                service: trading-bot
+            annotations:
+                summary: "High trade failure rate"
+                description: "More than 20% of trades for {{ $labels.asset }} have failed in the last hour."
+
+          # No trading activity (when expected)
+          - alert: NoTradingActivity
+            expr: increase(kraken_trades_total[24h]) == 0 and kraken_bot_dry_run_mode == 0 and kraken_bot_signal_only_mode == 0
+            for: 24h
+            labels:
+                severity: info
+                service: trading-bot
+            annotations:
+                summary: "No trading activity in 24 hours"
+                description: "The trading bot has not executed any trades in the last 24 hours. This may be normal during low volatility periods."
+
+          # Large position opened
+          - alert: LargePositionOpened
+            expr: kraken_position_size * kraken_current_price_usd > 10000
+            for: 0m
+            labels:
+                severity: info
+                service: trading-bot
+            annotations:
+                summary: "Large position opened"
+                description: "A position worth more than $10,000 has been opened for {{ $labels.asset }}."
+
+    # =========================================================================
+    # Performance/PnL Alerts
+    # =========================================================================
+    - name: performance_alerts
+      interval: 1m
+      rules:
+          # Significant unrealized loss
+          - alert: SignificantUnrealizedLoss
+            expr: kraken_position_unrealized_pnl_usd < -500
+            for: 5m
+            labels:
+                severity: warning
+                service: trading-bot
+            annotations:
+                summary: "Significant unrealized loss"
+                description: "Position in {{ $labels.asset }} has an unrealized loss of ${{ $value | printf \"%.2f\" }}."
+
+          # Large unrealized loss
+          - alert: LargeUnrealizedLoss
+            expr: kraken_position_unrealized_pnl_usd < -1000
+            for: 1m
+            labels:
+                severity: critical
+                service: trading-bot
+            annotations:
+                summary: "Large unrealized loss"
+                description: "Position in {{ $labels.asset }} has a large unrealized loss of ${{ $value | printf \"%.2f\" }}. Consider manual intervention."
+
+          # Total PnL negative threshold
+          - alert: NegativeTotalPnL
+            expr: sum(kraken_trade_pnl_total_usd) < -2000
+            for: 5m
+            labels:
+                severity: critical
+                service: trading-bot
+            annotations:
+                summary: "Total PnL significantly negative"
+                description: "Total PnL across all assets is ${{ $value | printf \"%.2f\" }}. Review trading strategy."
+
+          # Account balance low
+          - alert: LowAccountBalance
+            expr: kraken_account_balance_available_usd < 100
+            for: 5m
+            labels:
+                severity: warning
+                service: trading-bot
+            annotations:
+                summary: "Low account balance"
+                description: "Available account balance is ${{ $value | printf \"%.2f\" }}. Consider adding funds."
+
+    # =========================================================================
+    # API Health Alerts
+    # =========================================================================
+    - name: api_alerts
+      interval: 30s
+      rules:
+          # High API error rate
+          - alert: HighAPIErrorRate
+            expr: |
+                sum(rate(kraken_api_request_errors_total[5m]))
+                /
+                sum(rate(kraken_api_requests_total[5m]))
+                > 0.1
+            for: 5m
+            labels:
+                severity: warning
+                service: trading-bot
+            annotations:
+                summary: "High API error rate"
+                description: "More than 10% of API requests are failing. Check Kraken API status."
+
+          # Slow API responses
+          - alert: SlowAPIResponses
+            expr: kraken_api_request_duration_ms > 5000
+            for: 5m
+            labels:
+                severity: warning
+                service: trading-bot
+            annotations:
+                summary: "Slow API responses"
+                description: "API requests to {{ $labels.endpoint }} are taking more than 5 seconds."
+
+    # =========================================================================
+    # Optimizer Alerts
+    # =========================================================================
+    - name: optimizer_alerts
+      interval: 1m
+      rules:
+          # Optimization not running
+          - alert: OptimizationStale
+            expr: time() - kraken_optimization_last_timestamp_seconds > 86400
+            for: 1h
+            labels:
+                severity: warning
+                service: optimizer
+            annotations:
+                summary: "Optimization hasn't run recently"
+                description: "No optimization has been run for {{ $labels.asset }} in over 24 hours."
+
+          # Data collection errors
+          - alert: DataCollectionErrors
+            expr: increase(kraken_collection_errors_total[1h]) > 5
+            for: 0m
+            labels:
+                severity: warning
+                service: optimizer
+            annotations:
+                summary: "Data collection errors"
+                description: "{{ $value }} data collection errors occurred in the last hour."
+
+          # Poor optimization results
+          - alert: PoorOptimizationResults
+            expr: kraken_optimization_best_sharpe_ratio < 0.5
+            for: 0m
+            labels:
+                severity: info
+                service: optimizer
+            annotations:
+                summary: "Poor optimization results"
+                description: "Best Sharpe ratio for {{ $labels.asset }} is {{ $value | printf \"%.2f\" }}, which may indicate suboptimal market conditions."
+
+          # High drawdown in backtest
+          - alert: HighBacktestDrawdown
+            expr: kraken_optimization_best_max_drawdown_pct > 25
+            for: 0m
+            labels:
+                severity: warning
+                service: optimizer
+            annotations:
+                summary: "High drawdown in optimization"
+                description: "Best parameters for {{ $labels.asset }} show max drawdown of {{ $value | printf \"%.1f\" }}%."
+
+          # Low data coverage
+          - alert: LowDataCoverage
+            expr: kraken_data_candle_count < 1000
+            for: 1h
+            labels:
+                severity: info
+                service: optimizer
+            annotations:
+                summary: "Low historical data coverage"
+                description: "Only {{ $value }} candles available for {{ $labels.asset }} at {{ $labels.interval }}m interval. Results may be unreliable."
+
+          # Data gaps detected
+          - alert: DataGapsDetected
+            expr: kraken_data_gaps_count > 10
+            for: 1h
+            labels:
+                severity: warning
+                service: optimizer
+            annotations:
+                summary: "Data gaps detected"
+                description: "{{ $value }} gaps detected in {{ $labels.asset }} data at {{ $labels.interval }}m interval."
+
+    # =========================================================================
+    # Redis Alerts
+    # =========================================================================
+    - name: redis_alerts
+      interval: 30s
+      rules:
+          # Redis memory high
+          - alert: RedisMemoryHigh
+            expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.8
+            for: 5m
+            labels:
+                severity: warning
+                service: redis
+            annotations:
+                summary: "Redis memory usage high"
+                description: "Redis is using {{ $value | humanizePercentage }} of available memory."
+
+          # Redis connection issues
+          - alert: RedisConnectionIssues
+            expr: redis_connected_clients < 1
+            for: 1m
+            labels:
+                severity: warning
+                service: redis
+            annotations:
+                summary: "No Redis connections"
+                description: "No clients are connected to Redis. Trading bot state persistence may be affected."

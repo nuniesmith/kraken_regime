@@ -1,0 +1,55 @@
+# Rust
+target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# Environment variables
+.env
+*.env
+!.env.example
+.env.personal
+
+# Discord webhooks
+discord_webhook.txt
+*webhook*.txt
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+data/
+
+# Logs
+*.log
+logs/
+
+# Docker
+.dockerignore
+
+# Build artifacts
+dist/
+build/
+
+# Backup files
+*.bak
+*.tmp
+
+# OS
+Thumbs.db
+
+# Application specific
+trades.db*
+backtest_results/
+
+*.txt
+
+codebase_summary.md

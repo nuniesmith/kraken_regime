@@ -1,0 +1,70 @@
+# =============================================================================
+# Grafana Datasources Provisioning Configuration
+# =============================================================================
+# This file configures data sources that Grafana will automatically connect to.
+# =============================================================================
+
+apiVersion: 1
+
+datasources:
+    # -------------------------------------------------------------------------
+    # Prometheus - Primary metrics datasource
+    # -------------------------------------------------------------------------
+    - name: Prometheus
+      type: prometheus
+      access: proxy
+      url: http://prometheus:9090
+      isDefault: true
+      editable: false
+      jsonData:
+          # Scrape interval matches Prometheus config
+          timeInterval: "15s"
+          # Query timeout
+          queryTimeout: "60s"
+          # HTTP method for queries
+          httpMethod: "POST"
+          # Enable exemplars (if using tracing)
+          exemplarTraceIdDestinations:
+              - name: trace_id
+                datasourceUid: tempo
+      version: 1
+      uid: prometheus
+
+    # -------------------------------------------------------------------------
+    # Alertmanager - For viewing alerts in Grafana
+    # -------------------------------------------------------------------------
+    - name: Alertmanager
+      type: alertmanager
+      access: proxy
+      url: http://alertmanager:9093
+      editable: false
+      jsonData:
+          implementation: prometheus
+          handleGrafanaManagedAlerts: false
+      version: 1
+      uid: alertmanager
+
+    # -------------------------------------------------------------------------
+    # Redis - For Redis-specific metrics (optional, uses redis-datasource plugin)
+    # -------------------------------------------------------------------------
+    # Uncomment if you install the Redis datasource plugin
+    # - name: Redis
+    #   type: redis-datasource
+    #   access: proxy
+    #   url: redis://redis:6379
+    #   editable: false
+    #   version: 1
+    #   uid: redis
+
+    # -------------------------------------------------------------------------
+    # Loki - For log aggregation (optional, uncomment if deployed)
+    # -------------------------------------------------------------------------
+    # - name: Loki
+    #   type: loki
+    #   access: proxy
+    #   url: http://loki:3100
+    #   editable: false
+    #   jsonData:
+    #     maxLines: 1000
+    #   version: 1
+    #   uid: loki

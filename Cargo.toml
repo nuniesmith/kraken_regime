@@ -1,0 +1,77 @@
+[package]
+name = "kraken_regime"
+version = "0.1.0"
+edition = "2021"
+authors = ["Your Name"]
+description = "Regime-aware algorithmic trading bot for Kraken exchange"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/nuniesmith/kraken"
+keywords = ["trading", "algorithmic-trading", "kraken", "cryptocurrency"]
+categories = ["finance"]
+
+[lib]
+name = "kraken_regime"
+path = "src/lib.rs"
+
+[[bin]]
+name = "regime_trader"
+path = "src/bin/regime_trader.rs"
+
+[[example]]
+name = "backtest"
+path = "examples/backtest.rs"
+
+[[example]]
+name = "live_trading"
+path = "examples/live_trading.rs"
+
+[dependencies]
+# Async runtime
+tokio = { version = "1.35", features = ["full"] }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# HTTP client for REST API
+reqwest = { version = "0.11", features = ["json"] }
+
+# WebSocket
+tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
+futures-util = "0.3"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Configuration
+config = "0.14"
+dotenv = "0.15"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Testing
+rand = "0.8"
+
+[dev-dependencies]
+tokio-test = "0.4"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[features]
+default = []
+live_trading = []  # Enable actual trade execution
+
+[[bench]]
+name = "regime_detection"
+harness = false
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3

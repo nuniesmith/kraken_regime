@@ -1,0 +1,23 @@
+# =============================================================================
+# Grafana Dashboards Provisioning Configuration
+# =============================================================================
+# This file configures where Grafana should look for dashboard JSON files.
+# =============================================================================
+
+apiVersion: 1
+
+providers:
+    # -------------------------------------------------------------------------
+    # Kraken Trading Bot Dashboards
+    # -------------------------------------------------------------------------
+    - name: "Kraken Trading Bot"
+      orgId: 1
+      folder: "Kraken"
+      folderUid: "kraken"
+      type: file
+      disableDeletion: false
+      updateIntervalSeconds: 30
+      allowUiUpdates: true
+      options:
+          path: /var/lib/grafana/dashboards
+          foldersFromFilesStructure: false

@@ -1,0 +1,127 @@
+# =============================================================================
+# Prometheus Configuration for Kraken Trading Bot
+# =============================================================================
+# This configuration scrapes metrics from:
+# - Trading bot (Rust)
+# - Optimizer service (Python)
+# - Redis (via redis_exporter)
+# - Prometheus itself
+# =============================================================================
+
+global:
+    scrape_interval: 15s
+    evaluation_interval: 15s
+    external_labels:
+        monitor: "kraken-trading-bot"
+        environment: "production"
+
+# Alertmanager configuration
+alerting:
+    alertmanagers:
+        - static_configs:
+              - targets:
+                    - "alertmanager:9093"
+          timeout: 10s
+          api_version: v2
+
+# Rule files for alerting
+rule_files:
+    - "/etc/prometheus/rules/*.yml"
+
+# Scrape configurations
+scrape_configs:
+    # -------------------------------------------------------------------------
+    # Prometheus self-monitoring
+    # -------------------------------------------------------------------------
+    - job_name: "prometheus"
+      static_configs:
+          - targets: ["localhost:9090"]
+      scrape_interval: 30s
+
+    # -------------------------------------------------------------------------
+    # Kraken Trading Bot metrics (Rust)
+    # -------------------------------------------------------------------------
+    - job_name: "kraken-bot"
+      static_configs:
+          - targets: ["kraken-bot:9091"]
+            labels:
+                service: "trading-bot"
+                instance: "primary"
+      scrape_interval: 10s
+      scrape_timeout: 5s
+      metrics_path: "/metrics"
+      # Relabel to add instance name
+      relabel_configs:
+          - source_labels: [__address__]
+            target_label: instance
+            regex: '(.+):\d+'
+            replacement: "${1}"
+
+    # -------------------------------------------------------------------------
+    # Optimizer Service metrics (Python)
+    # -------------------------------------------------------------------------
+    - job_name: "kraken-optimizer"
+      static_configs:
+          - targets: ["optimizer:9092"]
+            labels:
+                service: "optimizer"
+      scrape_interval: 30s
+      scrape_timeout: 10s
+      metrics_path: "/metrics"
+      relabel_configs:
+          - source_labels: [__address__]
+            target_label: instance
+            regex: '(.+):\d+'
+            replacement: "${1}"
+
+    # -------------------------------------------------------------------------
+    # Redis Exporter metrics
+    # -------------------------------------------------------------------------
+    - job_name: "redis"
+      static_configs:
+          - targets: ["redis-exporter:9121"]
+            labels:
+                service: "redis"
+      scrape_interval: 15s
+      scrape_timeout: 5s
+
+    # -------------------------------------------------------------------------
+    # Alertmanager metrics
+    # -------------------------------------------------------------------------
+    - job_name: "alertmanager"
+      static_configs:
+          - targets: ["alertmanager:9093"]
+            labels:
+                service: "alertmanager"
+      scrape_interval: 30s
+
+    # -------------------------------------------------------------------------
+    # Local Forward Test metrics (when running cargo example locally)
+    # -------------------------------------------------------------------------
+    - job_name: "forward-test"
+      static_configs:
+          # For Docker on Mac/Windows use host.docker.internal
+          # For Docker on Linux use 172.17.0.1 (Docker bridge)
+          - targets: ["host.docker.internal:9091"]
+            labels:
+                service: "forward-test"
+                environment: "local"
+      scrape_interval: 15s
+      scrape_timeout: 5s
+      metrics_path: "/metrics"
+
+    # -------------------------------------------------------------------------
+    # Node exporter for system metrics (optional - uncomment if deployed)
+    # -------------------------------------------------------------------------
+    # - job_name: 'node'
+    #   static_configs:
+    #     - targets: ['node-exporter:9100']
+    #   scrape_interval: 15s
+
+    # -------------------------------------------------------------------------
+    # cAdvisor for container metrics (optional - uncomment if deployed)
+    # -------------------------------------------------------------------------
+    # - job_name: 'cadvisor'
+    #   static_configs:
+    #     - targets: ['cadvisor:8080']
+    #   scrape_interval: 15s

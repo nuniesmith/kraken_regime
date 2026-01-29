@@ -1,0 +1,127 @@
+# =============================================================================
+# Kraken Bot Instance Template
+# =============================================================================
+# This template is used by the dashboard service to spawn new bot instances
+# dynamically. The dashboard will substitute ${VARIABLE} placeholders with
+# actual values when creating a new instance.
+#
+# Variables available for substitution:
+#   ${INSTANCE_ID}       - Unique instance identifier (e.g., "bot-1", "btc-scalper")
+#   ${INSTANCE_NAME}     - Human-readable name for the instance
+#   ${CONTAINER_NAME}    - Docker container name (kraken-bot-${INSTANCE_ID})
+#   ${HEALTH_PORT}       - Health check port (auto-assigned from 8081+)
+#   ${METRICS_PORT}      - Prometheus metrics port (auto-assigned from 9092+)
+#   ${TRADING_PAIRS}     - Comma-separated trading pairs
+#   ${STRATEGY_TYPE}     - Strategy to use (pullback, breakout, scalp, etc.)
+#   ${REDIS_INSTANCE_ID} - Redis key prefix for state isolation
+# =============================================================================
+
+version: "3.8"
+
+services:
+    kraken-bot-${INSTANCE_ID}:
+        image: ${BOT_IMAGE:-nuniesmith/kraken:latest}
+        container_name: ${CONTAINER_NAME}
+        restart: unless-stopped
+        networks:
+            - kraken-network
+        environment:
+            # Instance identification
+            - BOT_NAME=${INSTANCE_NAME}
+            - BOT_INSTANCE_ID=${INSTANCE_ID}
+
+            # Trading mode (safe defaults - simulation only)
+            - ENABLE_DRY_RUN=${ENABLE_DRY_RUN:-true}
+            - SIGNAL_ONLY_MODE=${SIGNAL_ONLY_MODE:-true}
+            - SIMULATED_BALANCE_USD=${SIMULATED_BALANCE_USD:-5000.0}
+
+            # Trading configuration
+            - TRADING_PAIRS=${TRADING_PAIRS:-BTC/USD}
+            - TRADING_MODE=${TRADING_MODE:-spot}
+            - STRATEGY_TYPE=${STRATEGY_TYPE:-pullback}
+
+            # Redis configuration (unique prefix for state isolation)
+            - REDIS_URL=redis://redis:6379
+            - REDIS_INSTANCE_ID=${REDIS_INSTANCE_ID}
+
+            # Risk management
+            - RISK_PER_TRADE_PERCENTAGE=${RISK_PER_TRADE:-1.0}
+            - MAX_POSITION_SIZE_USD=${MAX_POSITION_SIZE:-250.0}
+            - MIN_POSITION_SIZE_USD=${MIN_POSITION_SIZE:-10.0}
+            - STOP_LOSS_PERCENTAGE=${STOP_LOSS:-2.0}
+            - TAKE_PROFIT_PERCENTAGE=${TAKE_PROFIT:-5.0}
+            - MAX_DAILY_TRADES=${MAX_DAILY_TRADES:-10}
+            - TRADE_COOLDOWN_SECONDS=${TRADE_COOLDOWN:-180}
+
+            # Strategy parameters (can be overridden per instance)
+            - EMA_SHORT_PERIOD=${EMA_SHORT:-50}
+            - EMA_LONG_PERIOD=${EMA_LONG:-200}
+
+            # Server configuration (unique ports per instance)
+            - HEALTH_CHECK_PORT=${HEALTH_PORT}
+            - METRICS_PORT=${METRICS_PORT}
+
+            # Data directories (shared volumes)
+            - OHLC_DATA_DIR=/data/ohlc
+            - OHLC_EXPORT_ENABLED=true
+            - OPTIMIZED_PARAMS_DIR=/data/optimized_params
+
+            # Logging
+            - RUST_LOG=${RUST_LOG:-info}
+            - RUST_BACKTRACE=1
+            - TZ=${TZ:-America/New_York}
+
+        volumes:
+            # Instance-specific data and logs
+            - kraken-bot-${INSTANCE_ID}-data:/app/data
+            - kraken-bot-${INSTANCE_ID}-logs:/app/logs
+            # Shared data volumes (read-only for params)
+            - kraken-ohlc-data:/data/ohlc
+            - kraken-optimized-params:/data/optimized_params:ro
+
+        deploy:
+            resources:
+                limits:
+                    cpus: "${CPU_LIMIT:-0.5}"
+                    memory: ${MEMORY_LIMIT:-256M}
+                reservations:
+                    cpus: "${CPU_RESERVATION:-0.1}"
+                    memory: ${MEMORY_RESERVATION:-64M}
+
+        logging:
+            driver: json-file
+            options:
+                max-size: "10m"
+                max-file: "3"
+
+        healthcheck:
+            test: ["CMD", "curl", "-sf", "http://localhost:${HEALTH_PORT}/health"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 15s
+
+        labels:
+            - "com.kraken.service=trading-bot"
+            - "com.kraken.bot.instance=${INSTANCE_ID}"
+            - "com.kraken.bot.name=${INSTANCE_NAME}"
+            - "com.kraken.bot.strategy=${STRATEGY_TYPE}"
+            - "com.kraken.bot.pairs=${TRADING_PAIRS}"
+            - "com.kraken.managed=true"
+
+networks:
+    kraken-network:
+        external: true
+        name: kraken-network
+
+volumes:
+    kraken-bot-${INSTANCE_ID}-data:
+        name: kraken-bot-${INSTANCE_ID}-data
+    kraken-bot-${INSTANCE_ID}-logs:
+        name: kraken-bot-${INSTANCE_ID}-logs
+    kraken-ohlc-data:
+        external: true
+        name: kraken-ohlc-data
+    kraken-optimized-params:
+        external: true
+        name: kraken-optimized-params
