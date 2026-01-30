@@ -2,6 +2,46 @@
 
 A Rust-based algorithmic trading system that automatically detects market regimes and switches between appropriate strategies.
 
+## 📚 Documentation
+
+This project has comprehensive documentation to help you get started and integrate the system:
+
+| Document | Purpose |
+|----------|---------|
+| **[DOCUMENTATION.md](docs/DOCUMENTATION.md)** | 📑 **Start here** - Complete documentation index and navigation guide |
+| **[QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md)** | ⚡ Quick command reference and cheat sheet |
+| **[SETUP_GUIDE.md](docs/SETUP_GUIDE.md)** | 🛠️ Detailed setup, integration, and configuration guide |
+| **[USAGE.md](docs/USAGE.md)** | 💻 API reference and code examples for library integration |
+| **[DOCKER_GUIDE.md](docs/DOCKER_GUIDE.md)** | 🐳 Docker setup and container deployment |
+| **[RASPBERRY_PI_SETUP.md](docs/RASPBERRY_PI_SETUP.md)** | 🥧 Raspberry Pi compatibility and optimization guide |
+| **[PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md)** | 🏗️ Technical architecture and codebase review |
+
+**Quick Start (Native):**
+```bash
+# 1. Fetch data
+cargo run --bin backtest_cli -- fetch --pair BTC/USD --days 90
+
+# 2. Run tests
+cargo test
+
+# 3. Run backtest
+cargo run --bin backtest_cli -- backtest --pair BTC/USD
+```
+
+**Quick Start (Docker):**
+```bash
+# 1. Create .env file with your config
+cp .env.example .env
+
+# 2. Start services
+docker compose up -d
+
+# 3. View logs
+docker compose logs -f
+```
+
+For detailed instructions, see [SETUP_GUIDE.md](docs/SETUP_GUIDE.md).
+
 ## 🎯 Overview
 
 Based on the research showing that **regime-aware strategies outperform static ones by 20-40%**, this system:
@@ -277,28 +317,16 @@ let config = RegimeConfig {
 
 ## 🧪 Testing
 
-### Run Backtest
-
 ```bash
-cargo run --example backtest
-```
-
-### Run Live (Signal Only)
-
-```bash
-# Set up environment
-cp .env.example .env
-# Edit .env with your Kraken API keys
-
-# Run in signal-only mode
-cargo run --example live_trading
-```
-
-### Unit Tests
-
-```bash
+# Run all tests
 cargo test
+
+# Run specific tests
+cargo test regime
+cargo test backtest
 ```
+
+For detailed testing guide, see [docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md#running-tests).
 
 ## 📈 Expected Performance
 
@@ -318,43 +346,15 @@ Based on the article's research and typical results:
 
 ## 🔧 Configuration Options
 
-### Strategy Router Config
+The system is highly configurable. See [docs/QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md#-configuration-options) for all options.
 
-```rust
-let config = StrategyRouterConfig {
-    // Regime detection
-    regime_config: RegimeConfig::crypto_optimized(),
-    
-    // Mean reversion settings
-    mean_reversion_config: MeanReversionConfig {
-        bb_period: 20,
-        bb_std_dev: 2.0,
-        entry_threshold: 0.05,
-        exit_at_middle: true,  // Conservative
-        ..Default::default()
-    },
-    
-    // Risk management
-    volatile_position_size_factor: 0.5,  // 50% size in volatile
-    min_regime_confidence: 0.5,          // Need 50% confidence
-    
-    ..Default::default()
-};
-```
+Key configuration areas:
+- **Regime Detection** - ADX, Bollinger Bands, ATR thresholds
+- **Strategy Routing** - Position sizing, confidence thresholds
+- **Trading Costs** - Fee tiers, slippage models
+- **Risk Management** - Position limits, stop loss settings
 
-### Integration Config
-
-```rust
-let config = KrakenIntegrationConfig {
-    pairs: vec!["BTC/USD".into(), "ETH/USD".into(), "SOL/USD".into()],
-    timeframe_minutes: 15,
-    live_trading: false,      // Set true for real trades
-    min_trade_usd: 10.0,
-    max_trade_usd: 250.0,
-    risk_per_trade_pct: 1.0,
-    ..Default::default()
-};
-```
+For detailed configuration reference, see [docs/SETUP_GUIDE.md](docs/SETUP_GUIDE.md#configuration-reference).
 
 ## ⚠️ Risk Warnings
 
@@ -374,13 +374,28 @@ Based on concepts from:
 
 ## 🚀 Next Steps
 
-1. Run backtests on your historical data
-2. Paper trade for at least 2-4 weeks
-3. Start with small positions (10% of normal size)
-4. Monitor regime detection accuracy
-5. Adjust thresholds based on your observations
+1. **Get Started**: Follow the [SETUP_GUIDE.md](docs/SETUP_GUIDE.md) for detailed setup
+2. **Learn Commands**: Bookmark [QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md) for quick lookups
+3. **Integrate**: See [USAGE.md](docs/USAGE.md) for API and integration examples
+4. **Backtest**: Validate your strategy before paper trading
+5. **Paper Trade**: Test with real data for 2-4 weeks before going live
+
+**Complete Documentation**: See [DOCUMENTATION.md](docs/DOCUMENTATION.md) for the full documentation index.
+
+---
+
+## 📚 Complete Documentation
+
+This README provides an overview. For detailed information:
+
+- **[📑 DOCUMENTATION.md](docs/DOCUMENTATION.md)** - Complete documentation index (start here if lost)
+- **[⚡ QUICK_REFERENCE.md](docs/QUICK_REFERENCE.md)** - All commands and options at a glance
+- **[🛠️ SETUP_GUIDE.md](docs/SETUP_GUIDE.md)** - Step-by-step setup and integration (780 lines)
+- **[💻 USAGE.md](docs/USAGE.md)** - API reference and code examples (683 lines)
+- **[🐳 DOCKER_GUIDE.md](docs/DOCKER_GUIDE.md)** - Docker setup and deployment guide
+- **[🥧 RASPBERRY_PI_SETUP.md](docs/RASPBERRY_PI_SETUP.md)** - Raspberry Pi 4B setup and optimization
+- **[🏗️ PROJECT_REVIEW.md](docs/PROJECT_REVIEW.md)** - Technical architecture review
 
 ---
 
 Built to integrate with your existing Kraken trading bot. Happy trading! 🦑
-# kraken_regime

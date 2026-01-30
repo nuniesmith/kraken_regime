@@ -5,12 +5,6 @@
 mod kraken;
 
 pub use kraken::{
-    KrakenRegimeTrader,
-    KrakenIntegrationConfig,
-    Candle,
-    TradeAction,
-    TradeType,
-    PairStatus,
-    websocket_integration,
-    rest_integration,
+    rest_integration, websocket_integration, Candle, KrakenIntegrationConfig, KrakenRegimeTrader,
+    PairStatus, TradeAction, TradeType,
 };

@@ -1,39 +1,40 @@
 # =============================================================================
-# Kraken Trading Bot - Docker Compose (Simplified)
+# Kraken Regime Trading Bot - Docker Compose
 # =============================================================================
-# Minimal stack: Redis + Bot + Dashboard (all Rust)
+# Simplified setup for running the trading bot with essential services
+# Compatible with x86_64 and ARM64 (Raspberry Pi)
 # =============================================================================
 
 services:
+    # =============================================================================
+    # Redis - Data caching and state management
+    # =============================================================================
     redis:
         image: redis:7-alpine
         container_name: kraken-redis
         restart: unless-stopped
         command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+        ports:
+            - "${REDIS_PORT:-6379}:6379"
         volumes:
             - redis-data:/data
         networks:
             - kraken-network
-        ports:
-            - "${REDIS_PORT:-6379}:6379"
-        environment:
-            - TZ=${TZ:-America/New_York}
-            - KRAKEN_MASTER_INSTANCE_ID=${KRAKEN_MASTER_INSTANCE_ID:-kraken-dev}
-        deploy:
-            resources:
-                limits:
-                    cpus: "0.25"
-                    memory: 256M
         healthcheck:
             test: ["CMD", "redis-cli", "ping"]
             interval: 10s
             timeout: 5s
             retries: 3
-        labels:
-            - "com.kraken.service=redis"
+        deploy:
+            resources:
+                limits:
+                    cpus: "0.5"
+                    memory: 256M
 
+    # =============================================================================
+    # Kraken Trading Bot - Main application
+    # =============================================================================
     kraken-bot:
-        image: ${DOCKER_IMAGE:-kraken-local}
         build:
             context: .
             dockerfile: docker/rust/Dockerfile
@@ -45,224 +46,62 @@ services:
         env_file:
             - .env
         environment:
-            - TZ=${TZ:-America/New_York}
+            # Bot configuration
             - RUST_LOG=${RUST_LOG:-info}
             - RUST_BACKTRACE=1
-            - BOT_NAME=kraken-bot
+            - TZ=${TZ:-America/New_York}
+
+            # Redis connection
             - REDIS_URL=redis://redis:6379
-            - REDIS_INSTANCE_ID=kraken
-            - OHLC_DATA_DIR=/data/ohlc
-            - OHLC_EXPORT_ENABLED=true
-            - OHLC_EXPORT_INTERVALS=1,5,15,60,240,1440
-            - OHLC_MAX_CANDLES=50000
-            - OPTIMIZED_PARAMS_DIR=/data/optimized_params
-            - METRICS_PORT=9091
+
+            # Trading configuration
+            - TRADING_PAIRS=${TRADING_PAIRS:-BTC/USD,ETH/USD}
+            - INITIAL_CAPITAL=${INITIAL_CAPITAL:-10000}
+            - RISK_PER_TRADE=${RISK_PER_TRADE:-0.01}
+            - UPDATE_INTERVAL_SECS=${UPDATE_INTERVAL_SECS:-300}
+
+            # Safety settings
+            - ENABLE_DRY_RUN=${ENABLE_DRY_RUN:-true}
+            - SIGNAL_ONLY_MODE=${SIGNAL_ONLY_MODE:-true}
+
+            # Data directories
+            - OHLC_DATA_DIR=/app/data/ohlc
+            - OPTIMIZED_PARAMS_DIR=/app/data/params
         volumes:
             - kraken-data:/app/data
             - kraken-logs:/app/logs
-            - ohlc-data:/data/ohlc
-            - optimized-params:/data/optimized_params
         networks:
             - kraken-network
         deploy:
             resources:
                 limits:
+                    cpus: "1.0"
+                    memory: 512M
+                reservations:
                     cpus: "0.5"
                     memory: 256M
-                reservations:
-                    cpus: "0.25"
-                    memory: 128M
         logging:
             driver: "json-file"
             options:
                 max-size: "10m"
                 max-file: "3"
         healthcheck:
-            test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+            test: ["CMD-SHELL", "pgrep -f kraken || exit 1"]
             interval: 30s
             timeout: 10s
             retries: 3
-            start_period: 15s
-        labels:
-            - "com.kraken.service=trading-bot"
-            - "com.kraken.bot.instance=primary"
+            start_period: 30s
 
-    dashboard:
-        image: ${DOCKER_IMAGE:-kraken-local}
-        container_name: kraken-dashboard
-        restart: unless-stopped
-        depends_on:
-            redis:
-                condition: service_healthy
-            kraken-bot:
-                condition: service_started
-        ports:
-            - "${DASHBOARD_PORT:-8088}:8088"
-        environment:
-            - TZ=${TZ:-America/New_York}
-            - REDIS_URL=redis://redis:6379
-            - KRAKEN_BOT_URL=http://kraken-bot:8080
-            - DASHBOARD_PORT=8088
-        entrypoint: ["/app/dashboard"]
-        volumes:
-            - optimized-params:/data/optimized_params:ro
-        networks:
-            - kraken-network
-        deploy:
-            resources:
-                limits:
-                    cpus: "0.25"
-                    memory: 128M
-        healthcheck:
-            test: ["CMD", "curl", "-sf", "http://localhost:8088/api/health"]
-            interval: 30s
-            timeout: 10s
-            retries: 3
-        labels:
-            - "com.kraken.service=dashboard"
-
-    prometheus:
-        image: prom/prometheus:v2.51.0
-        container_name: kraken-prometheus
-        restart: unless-stopped
-        command:
-            - "--config.file=/etc/prometheus/prometheus.yml"
-            - "--storage.tsdb.path=/prometheus"
-            - "--storage.tsdb.retention.time=7d"
-            - "--web.enable-lifecycle"
-        ports:
-            - "${PROMETHEUS_PORT:-9090}:9090"
-        volumes:
-            - ./config/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-            - ./config/monitoring/prometheus/rules:/etc/prometheus/rules:ro
-            - prometheus-data:/prometheus
-        networks:
-            - kraken-network
-        depends_on:
-            - kraken-bot
-            - redis
-        healthcheck:
-            test:
-                [
-                    "CMD",
-                    "wget",
-                    "--no-verbose",
-                    "--tries=1",
-                    "--spider",
-                    "http://localhost:9090/-/healthy",
-                ]
-            interval: 30s
-            timeout: 10s
-            retries: 3
-        labels:
-            - "com.kraken.service=prometheus"
-
-    grafana:
-        image: grafana/grafana:10.4.1
-        container_name: kraken-grafana
-        restart: unless-stopped
-        ports:
-            - "${GRAFANA_PORT:-3000}:3000"
-        environment:
-            - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
-            - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
-            - GF_USERS_ALLOW_SIGN_UP=false
-            - GF_SERVER_ROOT_URL=${GRAFANA_ROOT_URL:-http://localhost:3000}
-        volumes:
-            - grafana-data:/var/lib/grafana
-        networks:
-            - kraken-network
-        depends_on:
-            - prometheus
-        healthcheck:
-            test:
-                [
-                    "CMD-SHELL",
-                    "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1",
-                ]
-            interval: 30s
-            timeout: 10s
-            retries: 3
-        labels:
-            - "com.kraken.service=grafana"
-
-    alertmanager:
-        image: prom/alertmanager:v0.27.0
-        container_name: kraken-alertmanager
-        restart: unless-stopped
-        command:
-            - "--config.file=/etc/alertmanager/alertmanager.yml"
-            - "--storage.path=/alertmanager"
-        ports:
-            - "${ALERTMANAGER_PORT:-9093}:9093"
-        volumes:
-            - ./config/monitoring/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
-            - alertmanager-data:/alertmanager
-        networks:
-            - kraken-network
-        depends_on:
-            - prometheus
-        healthcheck:
-            test: ["CMD", "wget", "-qO-", "http://localhost:9093/-/healthy"]
-            interval: 30s
-            timeout: 10s
-            retries: 3
-        labels:
-            - "com.kraken.service=alertmanager"
-
-    redis-exporter:
-        image: oliver006/redis_exporter:v1.58.0
-        container_name: kraken-redis-exporter
-        restart: unless-stopped
-        environment:
-            - REDIS_ADDR=redis://redis:6379
-        networks:
-            - kraken-network
-        depends_on:
-            redis:
-                condition: service_healthy
-        healthcheck:
-            test:
-                [
-                    "CMD",
-                    "wget",
-                    "--no-verbose",
-                    "--tries=1",
-                    "--spider",
-                    "http://localhost:9121/health",
-                ]
-            interval: 30s
-            timeout: 10s
-            retries: 3
-        labels:
-            - "com.kraken.service=redis-exporter"
-
-    discord-webhook:
-        image: ${DOCKER_IMAGE:-kraken-local}
-        container_name: kraken-discord-webhook
-        restart: unless-stopped
-        depends_on:
-            alertmanager:
-                condition: service_started
-        env_file:
-            - .env
-        environment:
-            - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
-            - DISCORD_ADAPTER_PORT=9095
-            - KRAKEN_API_KEY=${KRAKEN_API_KEY}
-            - KRAKEN_API_SECRET=${KRAKEN_API_SECRET}
-        command: ["/app/discord-webhook-adapter"]
-        ports:
-            - "${DISCORD_ADAPTER_PORT:-9095}:9095"
-        networks:
-            - kraken-network
-        labels:
-            - "com.kraken.service=discord-webhook"
-
+# =============================================================================
+# Networks
+# =============================================================================
 networks:
     kraken-network:
         driver: bridge
 
+# =============================================================================
+# Volumes - Persistent data storage
+# =============================================================================
 volumes:
     redis-data:
         name: kraken-redis-data
@@ -270,13 +109,3 @@ volumes:
         name: kraken-bot-data
     kraken-logs:
         name: kraken-bot-logs
-    ohlc-data:
-        name: kraken-ohlc-data
-    optimized-params:
-        name: kraken-optimized-params
-    prometheus-data:
-        name: kraken-prometheus-data
-    grafana-data:
-        name: kraken-grafana-data
-    alertmanager-data:
-        name: kraken-alertmanager-data

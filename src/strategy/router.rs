@@ -1,15 +1,15 @@
 //! Strategy Router
-//! 
+//!
 //! Automatically switches between trading strategies based on detected market regime.
 //! This is the core of regime-aware trading - using the right tool for current conditions.
 //!
 //! Research shows regime-aware strategies outperform static ones by 20-40% by:
 //! - Using trend-following in trending markets
-//! - Using mean reversion in ranging markets  
+//! - Using mean reversion in ranging markets
 //! - Reducing exposure in volatile/choppy markets
 
-use crate::regime::{RegimeDetector, RegimeConfig, MarketRegime, RegimeConfidence, RecommendedStrategy, TrendDirection};
-use crate::strategy::mean_reversion::{MeanReversionStrategy, MeanReversionConfig, Signal};
+use crate::regime::{MarketRegime, RegimeConfidence, RegimeConfig, RegimeDetector, TrendDirection};
+use crate::strategy::mean_reversion::{MeanReversionConfig, MeanReversionStrategy, Signal};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -18,19 +18,19 @@ use std::collections::HashMap;
 pub struct StrategyRouterConfig {
     /// Regime detection config
     pub regime_config: RegimeConfig,
-    
+
     /// Mean reversion strategy config
     pub mean_reversion_config: MeanReversionConfig,
-    
+
     /// Position size reduction factor when in volatile regime
     pub volatile_position_size_factor: f64,
-    
+
     /// Minimum confidence to act on regime
     pub min_regime_confidence: f64,
-    
+
     /// Enable logging of regime changes
     pub log_regime_changes: bool,
-    
+
     /// EMA periods for trend following (your existing Golden Cross)
     pub trend_ema_short: usize,
     pub trend_ema_long: usize,
@@ -41,7 +41,7 @@ impl Default for StrategyRouterConfig {
         Self {
             regime_config: RegimeConfig::crypto_optimized(),
             mean_reversion_config: MeanReversionConfig::default(),
-            volatile_position_size_factor: 0.5,  // Half position in volatile markets
+            volatile_position_size_factor: 0.5, // Half position in volatile markets
             min_regime_confidence: 0.5,
             log_regime_changes: true,
             trend_ema_short: 50,
@@ -55,25 +55,25 @@ impl Default for StrategyRouterConfig {
 pub struct RoutedSignal {
     /// The trading signal
     pub signal: Signal,
-    
+
     /// Which strategy generated the signal
     pub source_strategy: ActiveStrategy,
-    
+
     /// Current detected regime
     pub regime: MarketRegime,
-    
+
     /// Regime confidence
     pub confidence: f64,
-    
+
     /// Position size multiplier (reduced in volatile markets)
     pub position_size_factor: f64,
-    
+
     /// Reasoning for the signal
     pub reason: String,
-    
+
     /// Stop loss level if applicable
     pub stop_loss: Option<f64>,
-    
+
     /// Take profit level if applicable
     pub take_profit: Option<f64>,
 }
@@ -122,7 +122,7 @@ impl AssetState {
 }
 
 /// Main Strategy Router
-/// 
+///
 /// Manages multiple assets, each with their own regime detection and strategy selection.
 #[derive(Debug)]
 pub struct StrategyRouter {
@@ -137,35 +137,39 @@ impl StrategyRouter {
             assets: HashMap::new(),
         }
     }
-    
+
     /// Create with default config
     pub fn default_config() -> Self {
         Self::new(StrategyRouterConfig::default())
     }
-    
+
     /// Register an asset (e.g., "BTC/USD", "ETH/USD", "SOL/USD")
     pub fn register_asset(&mut self, symbol: &str) {
         if !self.assets.contains_key(symbol) {
-            self.assets.insert(
-                symbol.to_string(),
-                AssetState::new(&self.config),
-            );
+            self.assets
+                .insert(symbol.to_string(), AssetState::new(&self.config));
         }
     }
-    
+
     /// Update with new OHLC data for an asset and get routed signal
-    pub fn update(&mut self, symbol: &str, high: f64, low: f64, close: f64) -> Option<RoutedSignal> {
+    pub fn update(
+        &mut self,
+        symbol: &str,
+        high: f64,
+        low: f64,
+        close: f64,
+    ) -> Option<RoutedSignal> {
         // Register if not seen before
         if !self.assets.contains_key(symbol) {
             self.register_asset(symbol);
         }
-        
+
         let config = &self.config;
         let state = self.assets.get_mut(symbol)?;
-        
+
         // Update regime detection
         let regime_result = state.regime_detector.update(high, low, close);
-        
+
         // Check for regime change
         if regime_result.regime != state.last_regime {
             state.regime_change_count += 1;
@@ -181,16 +185,16 @@ impl StrategyRouter {
             }
             state.last_regime = regime_result.regime;
         }
-        
+
         // Determine active strategy based on regime
         let (active_strategy, position_factor) = Self::select_strategy(
             &regime_result,
             config.min_regime_confidence,
             config.volatile_position_size_factor,
         );
-        
+
         state.current_strategy = active_strategy;
-        
+
         // Generate signal based on active strategy
         let (signal, reason, stop_loss, take_profit) = match active_strategy {
             ActiveStrategy::TrendFollowing => {
@@ -202,7 +206,11 @@ impl StrategyRouter {
                 let mr_signal = state.mean_reversion.update(high, low, close);
                 let reason = format!(
                     "Mean Reversion: %B={:.2}, RSI={:.1}",
-                    state.mean_reversion.last_bb_values().map(|b| b.percent_b).unwrap_or(0.5),
+                    state
+                        .mean_reversion
+                        .last_bb_values()
+                        .map(|b| b.percent_b)
+                        .unwrap_or(0.5),
                     state.mean_reversion.last_rsi().unwrap_or(50.0)
                 );
                 (
@@ -212,11 +220,14 @@ impl StrategyRouter {
                     state.mean_reversion.take_profit(),
                 )
             }
-            ActiveStrategy::NoTrade => {
-                (Signal::Hold, "Volatile/Uncertain - staying out".to_string(), None, None)
-            }
+            ActiveStrategy::NoTrade => (
+                Signal::Hold,
+                "Volatile/Uncertain - staying out".to_string(),
+                None,
+                None,
+            ),
         };
-        
+
         Some(RoutedSignal {
             signal,
             source_strategy: active_strategy,
@@ -228,7 +239,7 @@ impl StrategyRouter {
             take_profit,
         })
     }
-    
+
     /// Select strategy based on regime
     fn select_strategy(
         regime: &RegimeConfidence,
@@ -239,25 +250,19 @@ impl StrategyRouter {
         if regime.confidence < min_confidence {
             return (ActiveStrategy::NoTrade, 0.0);
         }
-        
+
         match regime.regime {
-            MarketRegime::Trending(_) => {
-                (ActiveStrategy::TrendFollowing, 1.0)
-            }
-            MarketRegime::MeanReverting => {
-                (ActiveStrategy::MeanReversion, 1.0)
-            }
+            MarketRegime::Trending(_) => (ActiveStrategy::TrendFollowing, 1.0),
+            MarketRegime::MeanReverting => (ActiveStrategy::MeanReversion, 1.0),
             MarketRegime::Volatile => {
                 // Still trade but with reduced size
                 // Use mean reversion with tight stops in volatile markets
                 (ActiveStrategy::MeanReversion, volatile_factor)
             }
-            MarketRegime::Uncertain => {
-                (ActiveStrategy::NoTrade, 0.0)
-            }
+            MarketRegime::Uncertain => (ActiveStrategy::NoTrade, 0.0),
         }
     }
-    
+
     /// Simple trend following signal based on EMA alignment
     /// (Placeholder - integrate with your existing Golden Cross strategy)
     fn trend_following_signal(
@@ -266,14 +271,14 @@ impl StrategyRouter {
     ) -> (Signal, String, Option<f64>, Option<f64>) {
         let adx = detector.adx_value().unwrap_or(0.0);
         let atr = detector.atr_value().unwrap_or(close * 0.02);
-        
+
         // This is a simplified version - integrate with your existing EMA strategies
         let regime = detector.current_regime();
-        
+
         match regime {
             MarketRegime::Trending(TrendDirection::Bullish) if adx > 25.0 => {
                 let stop_loss = close - (atr * 2.0);
-                let take_profit = close + (atr * 3.0);  // 1.5 R:R
+                let take_profit = close + (atr * 3.0); // 1.5 R:R
                 (
                     Signal::Buy,
                     format!("Trend Buy: Bullish trend, ADX={:.1}", adx),
@@ -292,32 +297,35 @@ impl StrategyRouter {
                     Some(take_profit),
                 )
             }
-            _ => {
-                (Signal::Hold, "Trend: Waiting for stronger signal".to_string(), None, None)
-            }
+            _ => (
+                Signal::Hold,
+                "Trend: Waiting for stronger signal".to_string(),
+                None,
+                None,
+            ),
         }
     }
-    
+
     /// Get current regime for an asset
     pub fn get_regime(&self, symbol: &str) -> Option<MarketRegime> {
         self.assets.get(symbol).map(|s| s.last_regime)
     }
-    
+
     /// Get current active strategy for an asset
     pub fn get_active_strategy(&self, symbol: &str) -> Option<ActiveStrategy> {
         self.assets.get(symbol).map(|s| s.current_strategy)
     }
-    
+
     /// Get all registered assets
     pub fn assets(&self) -> Vec<&str> {
         self.assets.keys().map(|s| s.as_str()).collect()
     }
-    
+
     /// Get regime change count for an asset
     pub fn regime_changes(&self, symbol: &str) -> Option<u32> {
         self.assets.get(symbol).map(|s| s.regime_change_count)
     }
-    
+
     /// Is the router ready for an asset (enough data)?
     pub fn is_ready(&self, symbol: &str) -> bool {
         self.assets
@@ -325,7 +333,7 @@ impl StrategyRouter {
             .map(|s| s.regime_detector.is_ready())
             .unwrap_or(false)
     }
-    
+
     /// Get config
     pub fn config(&self) -> &StrategyRouterConfig {
         &self.config
@@ -356,30 +364,30 @@ impl RouterStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_router_registration() {
         let mut router = StrategyRouter::default_config();
-        
+
         router.register_asset("BTC/USD");
         router.register_asset("ETH/USD");
         router.register_asset("SOL/USD");
-        
+
         assert_eq!(router.assets().len(), 3);
     }
-    
+
     #[test]
     fn test_router_update() {
         let mut router = StrategyRouter::default_config();
-        
+
         // Feed data until ready
         for i in 0..250 {
-            let price = 50000.0 + (i as f64 * 10.0);  // Trending up
+            let price = 50000.0 + (i as f64 * 10.0); // Trending up
             let high = price + 50.0;
             let low = price - 50.0;
-            
+
             let result = router.update("BTC/USD", high, low, price);
-            
+
             if router.is_ready("BTC/USD") && result.is_some() {
                 let signal = result.unwrap();
                 println!(
@@ -388,27 +396,24 @@ mod tests {
                 );
             }
         }
-        
+
         assert!(router.is_ready("BTC/USD"));
     }
-    
+
     #[test]
     fn test_regime_based_strategy_selection() {
-        let config = StrategyRouterConfig::default();
-        
+        let _config = StrategyRouterConfig::default();
+
         // Trending regime should select TrendFollowing
-        let trending = RegimeConfidence::new(
-            MarketRegime::Trending(TrendDirection::Bullish),
-            0.8,
-        );
+        let trending = RegimeConfidence::new(MarketRegime::Trending(TrendDirection::Bullish), 0.8);
         let (strategy, _) = StrategyRouter::select_strategy(&trending, 0.5, 0.5);
         assert_eq!(strategy, ActiveStrategy::TrendFollowing);
-        
+
         // Mean reverting should select MeanReversion
         let ranging = RegimeConfidence::new(MarketRegime::MeanReverting, 0.8);
         let (strategy, _) = StrategyRouter::select_strategy(&ranging, 0.5, 0.5);
         assert_eq!(strategy, ActiveStrategy::MeanReversion);
-        
+
         // Low confidence should be NoTrade
         let uncertain = RegimeConfidence::new(MarketRegime::Trending(TrendDirection::Bullish), 0.3);
         let (strategy, _) = StrategyRouter::select_strategy(&uncertain, 0.5, 0.5);

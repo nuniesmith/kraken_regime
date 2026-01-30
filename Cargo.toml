@@ -2,21 +2,17 @@
 name = "kraken_regime"
 version = "0.1.0"
 edition = "2021"
-authors = ["Your Name"]
+authors = ["nuniesmith"]
 description = "Regime-aware algorithmic trading bot for Kraken exchange"
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/nuniesmith/kraken"
+repository = "https://github.com/nuniesmith/kraken_regime"
 keywords = ["trading", "algorithmic-trading", "kraken", "cryptocurrency"]
 categories = ["finance"]
 
 [lib]
 name = "kraken_regime"
 path = "src/lib.rs"
-
-[[bin]]
-name = "regime_trader"
-path = "src/bin/regime_trader.rs"
 
 [[example]]
 name = "backtest"
@@ -66,10 +62,6 @@ criterion = { version = "0.5", features = ["html_reports"] }
 [features]
 default = []
 live_trading = []  # Enable actual trade execution
-
-[[bench]]
-name = "regime_detection"
-harness = false
 
 [profile.release]
 lto = true

@@ -48,31 +48,23 @@
 //! - Detecting the regime and selecting the right strategy improves returns
 //!   by 20-40% according to research, primarily by avoiding large drawdowns
 
+pub mod integration;
 pub mod regime;
 pub mod strategy;
-pub mod integration;
 
 // Re-exports for convenience
 pub use regime::{
-    MarketRegime,
+    MarketRegime, RecommendedStrategy, RegimeConfidence, RegimeConfig, RegimeDetector,
     TrendDirection,
-    RegimeConfig,
-    RegimeConfidence,
-    RegimeDetector,
-    RecommendedStrategy,
 };
 
 pub use strategy::{
-    mean_reversion::{MeanReversionStrategy, MeanReversionConfig, Signal},
-    router::{StrategyRouter, StrategyRouterConfig, RoutedSignal, ActiveStrategy},
+    mean_reversion::{MeanReversionConfig, MeanReversionStrategy, Signal},
+    router::{ActiveStrategy, RoutedSignal, StrategyRouter, StrategyRouterConfig},
 };
 
 pub use integration::{
-    KrakenRegimeTrader,
-    KrakenIntegrationConfig,
-    Candle,
-    TradeAction,
-    TradeType,
+    Candle, KrakenIntegrationConfig, KrakenRegimeTrader, TradeAction, TradeType,
 };
 
 /// Version information
@@ -81,13 +73,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Prelude for common imports
 pub mod prelude {
     pub use crate::{
-        MarketRegime,
-        RegimeDetector,
-        StrategyRouter,
-        KrakenRegimeTrader,
-        KrakenIntegrationConfig,
-        Candle,
-        TradeAction,
-        Signal,
+        Candle, KrakenIntegrationConfig, KrakenRegimeTrader, MarketRegime, RegimeDetector, Signal,
+        StrategyRouter, TradeAction,
     };
 }

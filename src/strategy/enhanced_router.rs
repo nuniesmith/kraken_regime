@@ -1,22 +1,23 @@
 //! Enhanced Strategy Router with Multiple Detection Methods
-//! 
+//!
 //! Extends the base StrategyRouter to support:
 //! 1. Technical Indicators (default)
 //! 2. Hidden Markov Model
 //! 3. Ensemble (both combined)
 //!
 //! Usage:
-//! ```rust
+//! ```rust,no_run
+//! use kraken_regime::strategy::enhanced_router::EnhancedRouter;
+//!
 //! let router = EnhancedRouter::with_hmm();  // Use HMM detection
 //! let router = EnhancedRouter::with_ensemble();  // Use Ensemble (recommended)
 //! ```
 
 use crate::regime::{
-    RegimeDetector, RegimeConfig, MarketRegime, RegimeConfidence, TrendDirection,
-    HMMRegimeDetector, HMMConfig,
-    EnsembleRegimeDetector, EnsembleConfig, EnsembleResult,
+    EnsembleConfig, EnsembleRegimeDetector, HMMConfig, HMMRegimeDetector, MarketRegime,
+    RegimeConfidence, RegimeConfig, RegimeDetector, TrendDirection,
 };
-use crate::strategy::mean_reversion::{MeanReversionStrategy, MeanReversionConfig, Signal};
+use crate::strategy::mean_reversion::{MeanReversionConfig, MeanReversionStrategy, Signal};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -33,7 +34,7 @@ pub enum DetectionMethod {
 
 impl Default for DetectionMethod {
     fn default() -> Self {
-        DetectionMethod::Ensemble  // Recommended default
+        DetectionMethod::Ensemble // Recommended default
     }
 }
 
@@ -42,27 +43,27 @@ impl Default for DetectionMethod {
 pub struct EnhancedRouterConfig {
     /// Which detection method to use
     pub detection_method: DetectionMethod,
-    
+
     /// Indicator-based config
     pub indicator_config: RegimeConfig,
-    
+
     /// HMM config
     #[serde(skip)]
     pub hmm_config: Option<HMMConfig>,
-    
-    /// Ensemble config  
+
+    /// Ensemble config
     #[serde(skip)]
     pub ensemble_config: Option<EnsembleConfig>,
-    
+
     /// Mean reversion strategy config
     pub mean_reversion_config: MeanReversionConfig,
-    
+
     /// Position size in volatile markets
     pub volatile_position_factor: f64,
-    
+
     /// Minimum confidence to trade
     pub min_confidence: f64,
-    
+
     /// Log regime changes
     pub log_changes: bool,
 }
@@ -111,16 +112,16 @@ pub struct EnhancedSignal {
     pub reason: String,
     pub stop_loss: Option<f64>,
     pub take_profit: Option<f64>,
-    
+
     /// Which detection method produced this
     pub detection_method: DetectionMethod,
-    
+
     /// Did methods agree? (only for Ensemble)
     pub methods_agree: Option<bool>,
-    
+
     /// HMM state probabilities (if using HMM/Ensemble)
     pub state_probabilities: Option<Vec<f64>>,
-    
+
     /// Expected regime duration in bars (from HMM)
     pub expected_duration: Option<f64>,
 }
@@ -155,7 +156,7 @@ impl EnhancedRouter {
             assets: HashMap::new(),
         }
     }
-    
+
     /// Create with indicator-based detection
     pub fn with_indicators() -> Self {
         Self::new(EnhancedRouterConfig {
@@ -163,7 +164,7 @@ impl EnhancedRouter {
             ..Default::default()
         })
     }
-    
+
     /// Create with HMM-based detection
     pub fn with_hmm() -> Self {
         Self::new(EnhancedRouterConfig {
@@ -172,7 +173,7 @@ impl EnhancedRouter {
             ..Default::default()
         })
     }
-    
+
     /// Create with Ensemble detection (recommended)
     pub fn with_ensemble() -> Self {
         Self::new(EnhancedRouterConfig {
@@ -181,13 +182,13 @@ impl EnhancedRouter {
             ..Default::default()
         })
     }
-    
+
     /// Register an asset
     pub fn register_asset(&mut self, symbol: &str) {
         if self.assets.contains_key(symbol) {
             return;
         }
-        
+
         let detector = match self.config.detection_method {
             DetectionMethod::Indicators => {
                 Detector::Indicator(RegimeDetector::new(self.config.indicator_config.clone()))
@@ -204,44 +205,61 @@ impl EnhancedRouter {
                 ))
             }
         };
-        
-        self.assets.insert(symbol.to_string(), AssetState {
-            detector,
-            mean_reversion: MeanReversionStrategy::new(self.config.mean_reversion_config.clone()),
-            current_strategy: ActiveStrategy::NoTrade,
-            last_regime: MarketRegime::Uncertain,
-            regime_change_count: 0,
-        });
+
+        self.assets.insert(
+            symbol.to_string(),
+            AssetState {
+                detector,
+                mean_reversion: MeanReversionStrategy::new(
+                    self.config.mean_reversion_config.clone(),
+                ),
+                current_strategy: ActiveStrategy::NoTrade,
+                last_regime: MarketRegime::Uncertain,
+                regime_change_count: 0,
+            },
+        );
     }
-    
+
     /// Update with new OHLC data
-    pub fn update(&mut self, symbol: &str, high: f64, low: f64, close: f64) -> Option<EnhancedSignal> {
+    pub fn update(
+        &mut self,
+        symbol: &str,
+        high: f64,
+        low: f64,
+        close: f64,
+    ) -> Option<EnhancedSignal> {
         if !self.assets.contains_key(symbol) {
             self.register_asset(symbol);
         }
-        
+
         let state = self.assets.get_mut(symbol)?;
-        
+
         // Get regime from appropriate detector
-        let (regime_result, methods_agree, state_probs, expected_duration) = match &mut state.detector {
-            Detector::Indicator(det) => {
-                let result = det.update(high, low, close);
-                (result, None, None, None)
-            }
-            Detector::HMM(det) => {
-                let result = det.update_ohlc(high, low, close);
-                let probs = det.state_probabilities().to_vec();
-                let duration = det.expected_regime_duration(det.current_state_index());
-                (result, None, Some(probs), Some(duration))
-            }
-            Detector::Ensemble(det) => {
-                let ens_result = det.update(high, low, close);
-                let probs = det.hmm_state_probabilities().to_vec();
-                let duration = det.expected_regime_duration();
-                (ens_result.to_regime_confidence(), Some(ens_result.methods_agree), Some(probs), Some(duration))
-            }
-        };
-        
+        let (regime_result, methods_agree, state_probs, expected_duration) =
+            match &mut state.detector {
+                Detector::Indicator(det) => {
+                    let result = det.update(high, low, close);
+                    (result, None, None, None)
+                }
+                Detector::HMM(det) => {
+                    let result = det.update_ohlc(high, low, close);
+                    let probs = det.state_probabilities().to_vec();
+                    let duration = det.expected_regime_duration(det.current_state_index());
+                    (result, None, Some(probs), Some(duration))
+                }
+                Detector::Ensemble(det) => {
+                    let ens_result = det.update(high, low, close);
+                    let probs = det.hmm_state_probabilities().to_vec();
+                    let duration = det.expected_regime_duration();
+                    (
+                        ens_result.to_regime_confidence(),
+                        Some(ens_result.methods_agree),
+                        Some(probs),
+                        Some(duration),
+                    )
+                }
+            };
+
         // Check for regime change
         if regime_result.regime != state.last_regime {
             state.regime_change_count += 1;
@@ -258,11 +276,14 @@ impl EnhancedRouter {
             }
             state.last_regime = regime_result.regime;
         }
-        
-        // Select strategy based on regime
-        let (strategy, position_factor) = self.select_strategy(&regime_result);
+
+        // Select strategy based on regime (before mutable borrow)
+        let min_confidence = self.config.min_confidence;
+        let volatile_factor = self.config.volatile_position_factor;
+        let (strategy, position_factor) =
+            Self::compute_strategy(&regime_result, min_confidence, volatile_factor);
         state.current_strategy = strategy;
-        
+
         // Generate signal
         let (signal, reason, stop_loss, take_profit) = match strategy {
             ActiveStrategy::TrendFollowing => {
@@ -275,18 +296,18 @@ impl EnhancedRouter {
                 let rsi = state.mean_reversion.last_rsi();
                 (
                     mr_signal,
-                    format!("MeanRev: %B={:.2} RSI={:.0}", 
-                            bb.map(|b| b.percent_b).unwrap_or(0.5),
-                            rsi.unwrap_or(50.0)),
+                    format!(
+                        "MeanRev: %B={:.2} RSI={:.0}",
+                        bb.map(|b| b.percent_b).unwrap_or(0.5),
+                        rsi.unwrap_or(50.0)
+                    ),
                     state.mean_reversion.stop_loss(),
                     state.mean_reversion.take_profit(),
                 )
             }
-            ActiveStrategy::NoTrade => {
-                (Signal::Hold, "Uncertain - staying out".into(), None, None)
-            }
+            ActiveStrategy::NoTrade => (Signal::Hold, "Uncertain - staying out".into(), None, None),
         };
-        
+
         Some(EnhancedSignal {
             signal,
             strategy,
@@ -302,21 +323,35 @@ impl EnhancedRouter {
             expected_duration,
         })
     }
-    
+
     /// Select strategy based on regime
+    #[allow(dead_code)]
     fn select_strategy(&self, regime: &RegimeConfidence) -> (ActiveStrategy, f64) {
-        if regime.confidence < self.config.min_confidence {
+        Self::compute_strategy(
+            regime,
+            self.config.min_confidence,
+            self.config.volatile_position_factor,
+        )
+    }
+
+    /// Compute strategy without self reference (static method)
+    fn compute_strategy(
+        regime: &RegimeConfidence,
+        min_confidence: f64,
+        volatile_factor: f64,
+    ) -> (ActiveStrategy, f64) {
+        if regime.confidence < min_confidence {
             return (ActiveStrategy::NoTrade, 0.0);
         }
-        
+
         match regime.regime {
             MarketRegime::Trending(_) => (ActiveStrategy::TrendFollowing, 1.0),
             MarketRegime::MeanReverting => (ActiveStrategy::MeanReversion, 1.0),
-            MarketRegime::Volatile => (ActiveStrategy::MeanReversion, self.config.volatile_position_factor),
+            MarketRegime::Volatile => (ActiveStrategy::MeanReversion, volatile_factor),
             MarketRegime::Uncertain => (ActiveStrategy::NoTrade, 0.0),
         }
     }
-    
+
     /// Generate trend following signal
     fn trend_signal(
         &self,
@@ -334,47 +369,49 @@ impl EnhancedRouter {
                     Some(close + atr_estimate * 3.0),
                 )
             }
-            MarketRegime::Trending(TrendDirection::Bearish) if regime.confidence > 0.6 => {
-                (
-                    Signal::Sell,
-                    format!("Bearish Trend (conf: {:.0}%)", regime.confidence * 100.0),
-                    None,
-                    None,
-                )
-            }
+            MarketRegime::Trending(TrendDirection::Bearish) if regime.confidence > 0.6 => (
+                Signal::Sell,
+                format!("Bearish Trend (conf: {:.0}%)", regime.confidence * 100.0),
+                None,
+                None,
+            ),
             _ => (Signal::Hold, "Trend unclear".into(), None, None),
         }
     }
-    
+
     /// Get current regime for an asset
     pub fn get_regime(&self, symbol: &str) -> Option<MarketRegime> {
         self.assets.get(symbol).map(|s| s.last_regime)
     }
-    
+
     /// Get current strategy for an asset
     pub fn get_strategy(&self, symbol: &str) -> Option<ActiveStrategy> {
         self.assets.get(symbol).map(|s| s.current_strategy)
     }
-    
+
     /// Check if detector is warmed up
     pub fn is_ready(&self, symbol: &str) -> bool {
-        self.assets.get(symbol).map(|s| {
-            match &s.detector {
+        self.assets
+            .get(symbol)
+            .map(|s| match &s.detector {
                 Detector::Indicator(d) => d.is_ready(),
                 Detector::HMM(d) => d.is_ready(),
                 Detector::Ensemble(d) => d.is_ready(),
-            }
-        }).unwrap_or(false)
+            })
+            .unwrap_or(false)
     }
-    
+
     /// Get detection method being used
     pub fn detection_method(&self) -> DetectionMethod {
         self.config.detection_method
     }
-    
+
     /// Get regime change count for an asset
     pub fn regime_changes(&self, symbol: &str) -> u32 {
-        self.assets.get(symbol).map(|s| s.regime_change_count).unwrap_or(0)
+        self.assets
+            .get(symbol)
+            .map(|s| s.regime_change_count)
+            .unwrap_or(0)
     }
 }
 
@@ -389,15 +426,15 @@ impl std::fmt::Display for EnhancedSignal {
             self.confidence * 100.0,
             self.position_factor * 100.0
         )?;
-        
+
         if let Some(agree) = self.methods_agree {
             write!(f, " | Agree: {}", if agree { "✓" } else { "✗" })?;
         }
-        
+
         if let Some(dur) = self.expected_duration {
             write!(f, " | ExpDur: {:.0} bars", dur)?;
         }
-        
+
         Ok(())
     }
 }
@@ -405,30 +442,36 @@ impl std::fmt::Display for EnhancedSignal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_enhanced_router_creation() {
         let router = EnhancedRouter::with_ensemble();
         assert_eq!(router.detection_method(), DetectionMethod::Ensemble);
     }
-    
+
     #[test]
     fn test_method_switching() {
         let indicator_router = EnhancedRouter::with_indicators();
         let hmm_router = EnhancedRouter::with_hmm();
         let ensemble_router = EnhancedRouter::with_ensemble();
-        
-        assert_eq!(indicator_router.detection_method(), DetectionMethod::Indicators);
+
+        assert_eq!(
+            indicator_router.detection_method(),
+            DetectionMethod::Indicators
+        );
         assert_eq!(hmm_router.detection_method(), DetectionMethod::HMM);
-        assert_eq!(ensemble_router.detection_method(), DetectionMethod::Ensemble);
+        assert_eq!(
+            ensemble_router.detection_method(),
+            DetectionMethod::Ensemble
+        );
     }
-    
+
     #[test]
     fn test_asset_registration() {
         let mut router = EnhancedRouter::with_ensemble();
         router.register_asset("BTC/USD");
         router.register_asset("ETH/USD");
-        
+
         assert!(router.get_regime("BTC/USD").is_some());
         assert!(router.get_regime("ETH/USD").is_some());
         assert!(router.get_regime("SOL/USD").is_none());
